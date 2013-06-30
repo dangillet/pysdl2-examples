@@ -11,25 +11,27 @@ from sdl2.sdlttf import (TTF_OpenFont,
 						 TTF_Quit
 						 )
 
+
 class TextSprite(sdl2ext.TextureSprite):
-	def __init__(self, renderer, fontPath, text = "", fontSize = 16, 
+	def __init__(self, spriteFactory, fontPath, text = "", fontSize = 16, 
 					   textColor = pixels.SDL_Color(255, 255, 255), 
 					   backgroundColor = pixels.SDL_Color(0, 0, 0)):
-		self.renderer = renderer.sdlrenderer
+		self.spriteFactory = spriteFactory
 		self.font = TTF_OpenFont(fontPath, fontSize)
 		self.text = text
 		self.fontSize = fontSize
 		self.textColor = textColor
 		self.backgroundColor = backgroundColor
 		textSurface = TTF_RenderText_Shaded(self.font, text, textColor, backgroundColor)
-		textTexture = render.SDL_CreateTextureFromSurface(self.renderer, textSurface)
-		surface.SDL_FreeSurface(textSurface)
-		super(TextSprite, self).__init__(textTexture)
+		if not textSurface:
+			raise TTF_GetError()
+		self.sprite = self.spriteFactory.from_surface(textSurface, free=True)
+		super(TextSprite, self).__init__(self.sprite.texture)
 
 class TextEntity(sdl2ext.Entity):
-	def __init__(self, world, renderer, fontPath):
+	def __init__(self, world, factory, fontPath):
 		super(TextEntity, self).__init__(world)
-		self.textSprite = TextSprite(renderer, fontPath, "TEST")
+		self.textSprite = TextSprite(factory, fontPath, "TEST")
 
 def main():
 	sdl2ext.init()
@@ -39,13 +41,14 @@ def main():
 	window = sdl2ext.Window("Text display", size=(800, 600))
 	window.show()
 	
-	renderer = sdl2ext.TextureSpriteRenderer(window)
-	
+	renderer = sdl2ext.RenderContext(window)
+	factory = sdl2ext.SpriteFactory(sdl2ext.TEXTURE, renderer=renderer)
 	world = sdl2ext.World()
 	
-	textEntity = TextEntity(world, renderer, RESSOURCE.get_path("tuffy.ttf"))
+	textEntity = TextEntity(world, factory, RESSOURCE.get_path("tuffy.ttf"))
+	spriteRenderer = sdl2ext.TextureSpriteRenderer(renderer)
 	
-	world.add_system(renderer)
+	world.add_system(spriteRenderer)
 	
 	running = True
 	while running:
