@@ -3,7 +3,7 @@
 #
 
 import sdl2.ext as sdl2ext
-from sdl2 import pixels, render, events as sdlevents, surface
+from sdl2 import pixels, render, events as sdlevents, surface, error
 from sdl2.sdlttf import (TTF_OpenFont, 
 						 TTF_RenderText_Shaded,
 						 TTF_GetError,
@@ -13,25 +13,56 @@ from sdl2.sdlttf import (TTF_OpenFont,
 
 
 class TextSprite(sdl2ext.TextureSprite):
-	def __init__(self, spriteFactory, fontPath, text = "", fontSize = 16, 
+	def __init__(self, renderer, fontPath, text = "", fontSize = 16, 
 					   textColor = pixels.SDL_Color(255, 255, 255), 
 					   backgroundColor = pixels.SDL_Color(0, 0, 0)):
-		self.spriteFactory = spriteFactory
+		if isinstance(renderer, sdl2ext.RenderContext):
+			self.renderer = renderer.renderer
+		elif isinstance(renderer, render.SDL_Renderer):
+			self.renderer = renderer
+		else:
+			raise TypeError("unsupported renderer type")
+		
 		self.font = TTF_OpenFont(fontPath, fontSize)
-		self.text = text
+		self._text = text
 		self.fontSize = fontSize
 		self.textColor = textColor
 		self.backgroundColor = backgroundColor
-		textSurface = TTF_RenderText_Shaded(self.font, text, textColor, backgroundColor)
+		texture = self._createTexture()
+		
+		super(TextSprite, self).__init__(texture)
+	
+	def _createTexture(self):
+		textSurface = TTF_RenderText_Shaded(self.font, self._text, self.textColor, self.backgroundColor)
 		if not textSurface:
 			raise TTF_GetError()
-		self.sprite = self.spriteFactory.from_surface(textSurface, free=True)
-		super(TextSprite, self).__init__(self.sprite.texture)
+		texture = render.SDL_CreateTextureFromSurface(self.renderer, textSurface)
+		if not texture:
+			raise sdl2ext.error.SDLError()
+		surface.SDL_FreeSurface(textSurface)
+		return texture
+	
+	@property
+	def text(self):
+		return self._text
+	
+	@text.setter
+	def text(self, value):
+		if self._text == value:
+			return
+		self._text = value
+		super(TextSprite, self).__del__()
+		texture = self._createTexture()
+		super(TextSprite, self).__init__(texture)
+		
 
 class TextEntity(sdl2ext.Entity):
-	def __init__(self, world, factory, fontPath):
+	def __init__(self, world, factory, fontPath, sprite):
 		super(TextEntity, self).__init__(world)
-		self.textSprite = TextSprite(factory, fontPath, "TEST")
+		self.textSprite = sprite
+	
+	def changeText(self, value):
+		self.textSprite.text = value
 
 def main():
 	sdl2ext.init()
@@ -45,12 +76,17 @@ def main():
 	factory = sdl2ext.SpriteFactory(sdl2ext.TEXTURE, renderer=renderer)
 	world = sdl2ext.World()
 	
-	textEntity = TextEntity(world, factory, RESSOURCE.get_path("tuffy.ttf"))
+	fontPath = RESSOURCE.get_path("tuffy.ttf")
+	textSprite = TextSprite(renderer, fontPath, "TEST")
+	textEntity = TextEntity(world, renderer, fontPath, textSprite)
 	spriteRenderer = sdl2ext.TextureSpriteRenderer(renderer)
 	
 	world.add_system(spriteRenderer)
 	
 	running = True
+	
+	textSprite.text = "Text is changed"
+	
 	while running:
 		for event in sdl2ext.get_events():
 			if event.type == sdlevents.SDL_QUIT:
