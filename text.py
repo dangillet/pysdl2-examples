@@ -55,6 +55,14 @@ class TextSprite(sdl2ext.TextureSprite):
 		surface.SDL_FreeSurface(textSurface)
 		return texture
 	
+	def _updateTexture(self):
+		textureToDelete = self.texture
+		
+		texture = self._createTexture()
+		super(TextSprite, self).__init__(texture)
+
+		render.SDL_DestroyTexture(textureToDelete)
+	
 	@property
 	def text(self):
 		return self._text
@@ -64,12 +72,7 @@ class TextSprite(sdl2ext.TextureSprite):
 		if self._text == value:
 			return
 		self._text = value
-		textureToDelete = self.texture
-		
-		texture = self._createTexture()
-		super(TextSprite, self).__init__(texture)
-
-		render.SDL_DestroyTexture(textureToDelete)
+		self._updateTexture()
 		
 class FPS(object):
 	def __init__(self, sprite):
@@ -134,8 +137,9 @@ def main():
 			if event.type == sdlevents.SDL_QUIT:
 				running = False
 				break
+		renderer.clear()
 		world.process()
-	
+		
 	TTF_Quit()
 	sdl2ext.quit()
 	return 0
