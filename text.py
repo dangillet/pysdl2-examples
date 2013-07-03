@@ -2,8 +2,11 @@
 # -*- coding: utf-8 -*-
 #
 
+import os
+
 import sdl2.ext as sdl2ext
-from sdl2 import pixels, render, events as sdlevents, surface, error
+from sdl2 import (pixels, render, events as sdlevents, surface, error,
+					timer)
 from sdl2.sdlttf import (TTF_OpenFont, 
 						 TTF_RenderText_Shaded,
 						 TTF_GetError,
@@ -13,7 +16,7 @@ from sdl2.sdlttf import (TTF_OpenFont,
 
 
 class TextSprite(sdl2ext.TextureSprite):
-	def __init__(self, renderer, fontPath, text = "", fontSize = 16, 
+	def __init__(self, renderer, font = None, text = "", fontSize = 16, 
 					   textColor = pixels.SDL_Color(255, 255, 255), 
 					   backgroundColor = pixels.SDL_Color(0, 0, 0)):
 		if isinstance(renderer, sdl2ext.RenderContext):
@@ -22,8 +25,18 @@ class TextSprite(sdl2ext.TextureSprite):
 			self.renderer = renderer
 		else:
 			raise TypeError("unsupported renderer type")
-		
-		self.font = TTF_OpenFont(fontPath, fontSize)
+
+		if font is None:
+			font = os.path.join(os.environ["windir"],"Fonts","Arial.ttf")
+		elif not os.path.isfile(font):
+			if os.path.isfile(os.path.join(os.environ["windir"], "Fonts", font + ".ttf")):
+				font = os.path.join(os.environ["windir"], "Fonts", font + ".ttf")
+			else:
+				raise IOError("Cannot find %s" % font)
+				
+		self.font = TTF_OpenFont(font, fontSize)
+		if self.font is None:
+			raise TTF_GetError()
 		self._text = text
 		self.fontSize = fontSize
 		self.textColor = textColor
@@ -34,11 +47,11 @@ class TextSprite(sdl2ext.TextureSprite):
 	
 	def _createTexture(self):
 		textSurface = TTF_RenderText_Shaded(self.font, self._text, self.textColor, self.backgroundColor)
-		if not textSurface:
+		if textSurface is None:
 			raise TTF_GetError()
 		texture = render.SDL_CreateTextureFromSurface(self.renderer, textSurface)
-		if not texture:
-			raise sdl2ext.error.SDLError()
+		if texture is None:
+			raise sdl2ext.SDLError()
 		surface.SDL_FreeSurface(textSurface)
 		return texture
 	
@@ -51,23 +64,53 @@ class TextSprite(sdl2ext.TextureSprite):
 		if self._text == value:
 			return
 		self._text = value
-		super(TextSprite, self).__del__()
+		textureToDelete = self.texture
+		
 		texture = self._createTexture()
 		super(TextSprite, self).__init__(texture)
-		
 
-class TextEntity(sdl2ext.Entity):
-	def __init__(self, world, factory, fontPath, sprite):
-		super(TextEntity, self).__init__(world)
-		self.textSprite = sprite
+		render.SDL_DestroyTexture(textureToDelete)
+		
+class FPS(object):
+	def __init__(self, sprite):
+		super(FPS, self).__init__()
+		self.counter = 0
+		self.text = sprite
+		self.callback = self.getCallBackFunc()
+		self.timerId = timer.SDL_AddTimer(1000, self.callback, None)
+		
+	def getCallBackFunc(self):
+		def oneSecondElapsed(time, userdata):
+			self.text.text = "FPS: " + str(self.counter)
+			print self.counter
+			self.counter = 0
+			return time
+		return timer.SDL_TimerCallback(oneSecondElapsed)
 	
-	def changeText(self, value):
-		self.textSprite.text = value
+class FPSCounter(sdl2ext.Entity):
+	def __init__(self, world, *args, **kwargs):
+		if "renderer" not in kwargs:
+			raise ValueError("you have to provide a renderer= argument")
+		renderer = kwargs['renderer']
+		super(FPSCounter, self).__init__(world, *args, **kwargs)
+		textSprite = TextSprite(renderer, "Comic", "FPS: -")
+		self.fps = FPS(textSprite)
+		self.textSprite = textSprite
+
+class FPSController(sdl2ext.System):
+	def __init__(self):
+		"""Creates a new Frame per Second counter."""
+		super(FPSController, self).__init__()
+		self.componenttypes = (FPS,)
+	
+	def process(self, world, components):
+		for fps in components:
+			fps.counter += 1
+	
 
 def main():
 	sdl2ext.init()
 	TTF_Init()
-	RESSOURCE = sdl2ext.Resources(__file__, "resources")
 	
 	window = sdl2ext.Window("Text display", size=(800, 600))
 	window.show()
@@ -75,17 +118,16 @@ def main():
 	renderer = sdl2ext.RenderContext(window)
 	factory = sdl2ext.SpriteFactory(sdl2ext.TEXTURE, renderer=renderer)
 	world = sdl2ext.World()
+
+	fps = FPSCounter(world, renderer=renderer)
 	
-	fontPath = RESSOURCE.get_path("tuffy.ttf")
-	textSprite = TextSprite(renderer, fontPath, "TEST")
-	textEntity = TextEntity(world, renderer, fontPath, textSprite)
-	spriteRenderer = sdl2ext.TextureSpriteRenderer(renderer)
+	spriteRenderer = factory.create_sprite_renderer()
+	fpsController = FPSController()
 	
+	world.add_system(fpsController)
 	world.add_system(spriteRenderer)
 	
 	running = True
-	
-	textSprite.text = "Text is changed"
 	
 	while running:
 		for event in sdl2ext.get_events():
@@ -95,6 +137,7 @@ def main():
 		world.process()
 	
 	TTF_Quit()
+	sdl2ext.quit()
 	return 0
 
 if __name__ == '__main__':
