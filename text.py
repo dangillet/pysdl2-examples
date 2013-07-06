@@ -3,6 +3,7 @@
 #
 
 import os
+from ctypes import py_object, pointer, cast, c_void_p, POINTER
 
 import sdl2.ext as sdl2ext
 from sdl2 import (pixels, render, events as sdlevents, surface, error,
@@ -79,16 +80,7 @@ class FPS(object):
 		super(FPS, self).__init__()
 		self.counter = 0
 		self.text = sprite
-		self.callback = self.getCallBackFunc()
-		self.timerId = timer.SDL_AddTimer(1000, self.callback, None)
-		
-	def getCallBackFunc(self):
-		def oneSecondElapsed(time, userdata):
-			self.text.text = "FPS: " + str(self.counter)
-			print self.counter
-			self.counter = 0
-			return time
-		return timer.SDL_TimerCallback(oneSecondElapsed)
+
 	
 class FPSCounter(sdl2ext.Entity):
 	def __init__(self, world, *args, **kwargs):
@@ -99,6 +91,27 @@ class FPSCounter(sdl2ext.Entity):
 		textSprite = TextSprite(renderer, "Comic", "FPS: -")
 		self.fps = FPS(textSprite)
 		self.textSprite = textSprite
+		object.__setattr__(self, 'callback', self.getCallBackFunc())
+		object.__setattr__(self, 'timerId', timer.SDL_AddTimer(1000, self.callback, None))
+
+		
+	def getCallBackFunc(self):
+		def oneSecondElapsed(time, userdata):
+			event = sdlevents.SDL_Event()
+			user_event = sdlevents.SDL_UserEvent()
+			
+			user_event.type = sdlevents.SDL_USEREVENT
+			user_event.code = 0
+			user_event.data1 = cast(pointer(py_object(self)), c_void_p)
+			user_event.data2 = 0
+			
+			event.type = sdlevents.SDL_USEREVENT
+			event.user = user_event
+			
+			sdlevents.SDL_PushEvent(event)
+			
+			return time
+		return timer.SDL_TimerCallback(oneSecondElapsed)
 
 class FPSController(sdl2ext.System):
 	def __init__(self):
@@ -137,6 +150,10 @@ def main():
 			if event.type == sdlevents.SDL_QUIT:
 				running = False
 				break
+			elif event.type == sdlevents.SDL_USEREVENT:
+				entity = cast(event.user.data1, POINTER(py_object)).contents.value
+				entity.textsprite.text = "FPS: " + str(entity.fps.counter)
+				entity.fps.counter = 0
 		renderer.clear()
 		world.process()
 		
